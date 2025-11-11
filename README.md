@@ -52,7 +52,7 @@ Options:
 
 On success the script overwrites/creates a single tidy dataset (CSV + Parquet):
 
-- `data/tidy/rates_tidy.*` — columns `[plant, period, product, element_code, rate, qty, currency, rate_uom, source_path]`.
+- `data/tidy/rates_tidy.*` — columns `[plant, period, product, element_code, rate, qty, source_path]`.
 
 Behavioral notes:
 

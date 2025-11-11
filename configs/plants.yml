@@ -251,9 +251,4 @@ output:
     - element_code
     - rate
     - qty
-    - currency
-    - rate_uom
     - source_path
-  defaults:
-    currency: "USD"
-    rate_uom: "USD/ton"

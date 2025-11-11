@@ -194,7 +194,6 @@ def parse_band(
     production_cfg: Dict,
     cost_rules: Sequence[Dict],
     mapping: Optional[Dict[str, str]],
-    defaults: Dict[str, str],
     plant_code: str,
     period_date: pd.Timestamp,
     source_path: str,
@@ -265,8 +264,6 @@ def parse_band(
                         "element_code": PRODUCTION_ELEMENT_CODE,
                         "rate": None,
                         "qty": value,
-                        "currency": None,
-                        "rate_uom": None,
                         "source_path": source_path,
                     }
                 )
@@ -291,8 +288,6 @@ def parse_band(
                     "element_code": element_code,
                     "rate": value,
                     "qty": None,
-                    "currency": defaults.get("currency"),
-                    "rate_uom": defaults.get("rate_uom"),
                     "source_path": source_path,
                 }
             )
@@ -320,8 +315,6 @@ def parse_band(
                         "element_code": PRODUCTION_ELEMENT_CODE,
                         "rate": None,
                         "qty": value,
-                        "currency": None,
-                        "rate_uom": None,
                         "source_path": source_path,
                     }
                 )
@@ -332,7 +325,6 @@ def parse_band(
 def parse_sheet(
     df: pd.DataFrame,
     ruleset: Dict,
-    defaults: Dict[str, str],
     mapping: Optional[Dict[str, str]],
     plant_code: str,
     period_date: pd.Timestamp,
@@ -354,7 +346,6 @@ def parse_sheet(
             production_cfg=production_cfg,
             cost_rules=cost_rules,
             mapping=mapping,
-            defaults=defaults,
             plant_code=plant_code,
             period_date=period_date,
             source_path=source_path,
@@ -449,7 +440,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     period_mapping = periods_cfg.get("mapping", {})
     allowed_periods = {period_str_to_timestamp(v) for v in period_mapping.values()}
     norm_cfg = config.get("normalize", {})
-    defaults = config.get("output", {}).get("defaults", {})
     plants_cfg = config.get("plants", [])
     rulesets = config.get("rulesets", {})
 
@@ -482,7 +472,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                     sheet_records = parse_sheet(
                         df=df,
                         ruleset=ruleset,
-                        defaults=defaults,
                         mapping=mapping,
                         plant_code=plant_code,
                         period_date=period_date,
@@ -514,8 +503,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 "element_code",
                 "rate",
                 "qty",
-                "currency",
-                "rate_uom",
                 "source_path",
             ]
         )
@@ -525,8 +512,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             .agg(
                 rate=("rate", lambda s: s.sum(min_count=1)),
                 qty=("qty", lambda s: s.sum(min_count=1)),
-                currency=("currency", "first"),
-                rate_uom=("rate_uom", "first"),
                 source_path=("source_path", lambda vals: "|".join(dict.fromkeys(v for v in vals if v))),
             )
             .reset_index()
@@ -541,8 +526,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             "element_code",
             "rate",
             "qty",
-            "currency",
-            "rate_uom",
             "source_path",
         ],
     )
