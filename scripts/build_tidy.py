@@ -16,8 +16,6 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "configs" / "plants.yml"
 DEFAULT_OUT_DIR = PROJECT_ROOT / "data" / "tidy"
-PRODUCTION_ELEMENT_CODE = "__production_qty__"
-
 def load_config(path: Path = CONFIG_PATH) -> Dict:
     with path.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
@@ -276,10 +274,9 @@ def parse_band(
     )
 
     records: List[Dict] = []
+    product_qty: Dict[str, Optional[float]] = {}
     row_idx = int(start_row) - 1
     total_rows = df.shape[0]
-    production_recorded = False
-
     while row_idx < total_rows:
         raw_label = get_cell(df, row_idx, label_col_idx)
         label = normalize_text(raw_label, trim, collapse)
@@ -291,28 +288,12 @@ def parse_band(
         if any(contains_ilike(label, patt) for patt in exclude_rows):
             row_idx += 1
             continue
-        if (
-            not production_recorded
-            and production_cfg
-            and label_matches(label, production_cfg.get("match", {}))
-        ):
-            for col_idx, product_name, mat_group in products:
+        if production_cfg and label_matches(label, production_cfg.get("match", {})):
+            for col_idx, product_name, _ in products:
                 value = parse_numeric(get_cell(df, row_idx, col_idx))
                 if value is None:
                     continue
-                records.append(
-                    {
-                        "plant": plant_code,
-                        "period": period_date,
-                        "product": product_name,
-                        "mat_group": mat_group,
-                        "element_code": PRODUCTION_ELEMENT_CODE,
-                        "rate": None,
-                        "qty": value,
-                        "source_path": source_path,
-                    }
-                )
-            production_recorded = True
+                product_qty[product_name] = value
             row_idx += 1
             continue
         normalized_label = apply_cost_rules(label, cost_rules)
@@ -333,15 +314,15 @@ def parse_band(
                     "period": period_date,
                     "product": product_name,
                     "mat_group": mat_group,
-                    "element_code": element_code,
-                    "rate": value,
-                    "qty": None,
-                    "source_path": source_path,
-                }
-            )
+                        "element_code": element_code,
+                        "rate": value,
+                        "qty": None,
+                        "source_path": source_path,
+                    }
+                )
         row_idx += 1
 
-    if production_cfg and not production_recorded:
+    if production_cfg and not product_qty:
         match_cfg = production_cfg.get("match", {})
         prod_row_idx = find_production_row(
             df=df,
@@ -351,22 +332,15 @@ def parse_band(
             match_cfg=match_cfg,
         )
         if prod_row_idx is not None:
-            for col_idx, product_name, mat_group in products:
+            for col_idx, product_name, _ in products:
                 value = parse_numeric(get_cell(df, prod_row_idx, col_idx))
                 if value is None:
                     continue
-                records.append(
-                    {
-                        "plant": plant_code,
-                        "period": period_date,
-                        "product": product_name,
-                        "mat_group": mat_group,
-                        "element_code": PRODUCTION_ELEMENT_CODE,
-                        "rate": None,
-                        "qty": value,
-                        "source_path": source_path,
-                    }
-                )
+                product_qty[product_name] = value
+
+    if product_qty:
+        for record in records:
+            record["qty"] = product_qty.get(record["product"])
 
     return records
 

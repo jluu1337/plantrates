@@ -58,8 +58,8 @@ On success the script overwrites/creates a single tidy dataset (CSV + Parquet):
 Behavioral notes:
 
 - Workbook product headers are normalized via `configs/product_map.csv`: `product` stores the mapped `ProductMesh`, and `mat_group` stores the accompanying `MatGroup`. When a product is missing from the lookup, the original label is retained and `mat_group` is null.
-- Cost-element rows populate `rate`, leave `qty` null, and use the canonical `element_code`.
-- Production rows populate `qty`, leave `rate` null, and use a sentinel element code (`__production_qty__`) so downstream logic can distinguish them.
+- Cost-element rows populate `rate` and carry the period/product-level production value in `qty`.
+- Production row values are loaded once per period/product (from the `TOTAL PRODUCTION` row) and copied onto every tidy record sharing that `(plant, period, product)` key, so there is no separate "production element".
 - Duplicate `(plant, period, product, element_code)` rows (e.g., duplicate product columns in the workbook) are summed and their source paths concatenated (unique order preserved).
 
 ## Validation & Troubleshooting
