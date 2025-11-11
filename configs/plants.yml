@@ -1,5 +1,5 @@
 version: 1
-root_folder: "\\\\192.168.155.84\\RPT\\CRR\\Budget\\Components"
+root_folder: "C:\\Dev\\plant-rates\\plantrates\\src\\Components"
 grain:
   - plant
   - period
