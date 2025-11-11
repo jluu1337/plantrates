@@ -1,0 +1,13 @@
+﻿source_name,element_code
+Materials,materials
+Electricity,electricity
+Gas,gas
+R&M,rm
+Manufacturing,manufacturing
+Other,other
+Production Labor,production_labor
+R&M Labor,rm_labor
+Indirect Labor,indirect_labor
+Supervision,supervision
+Depreciation,depreciation
+Insurance & Taxes,insurance_taxes

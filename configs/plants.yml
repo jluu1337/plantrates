@@ -1,5 +1,15 @@
 version: 1
 root_folder: "\\\\192.168.155.84\\RPT\\CRR\\Budget\\Components"
+grain:
+  - plant
+  - period
+  - product
+  - cost_element
+  - rate
+  - qty
+normalize:
+  trim_whitespace: true
+  collapse_internal_spaces: true
 normalize_plant_from_filename:
   - pattern: "(?i)EUF"
     to: "EUF"
@@ -9,19 +19,6 @@ normalize_plant_from_filename:
     to: "NI"
   - pattern: "(?i)TMB"
     to: "TMB"
-plants:
-  - match: "(?i)EUF"
-    plant_code: "EUF"
-    ruleset: "cross_tab_v1"
-  - match: "(?i)MCI"
-    plant_code: "MCI"
-    ruleset: "cross_tab_v1"
-  - match: "(?i)(New\\s*Iberia|\\bNI\\b)"
-    plant_code: "NI"
-    ruleset: "cross_tab_v1"
-  - match: "(?i)TMB"
-    plant_code: "TMB"
-    ruleset: "cross_tab_v1"
 periods:
   include_sheets:
     - Nov25
@@ -53,34 +50,212 @@ periods:
     Oct: "2026/10"
     Nov: "2026/11"
     Dec: "2026/12"
+plants:
+  - match: "(?i)EUF"
+    plant_code: "EUF"
+    ruleset: "cross_tab_euf_mci"
+  - match: "(?i)MCI"
+    plant_code: "MCI"
+    ruleset: "cross_tab_euf_mci"
+  - match: "(?i)(New\\s*Iberia|\\bNI\\b)"
+    plant_code: "NI"
+    ruleset: "cross_tab_ni_rc"
+  - match: "(?i)TMB"
+    plant_code: "TMB"
+    ruleset: "cross_tab_tmb"
 rulesets:
-  cross_tab_v1:
+  cross_tab_euf_mci:
     layout:
       product_row: 3
       product_start_column: "B"
+      product_stride: 1
       cost_elements:
+        label_column: "A"
         start_row: 6
         stop_before_text_ilike: "Total Fixed Costs"
         exclude_rows_ilike:
           - "Total Fixed Costs"
           - "Total Variable Costs"
       production:
-        row_match_ilike:
-          - "^\\s*TOTAL\\s*PRODUCTION\\s*\\(.*000\\s*lbs.*\\)\\s*$"
-          - "^\\s*PRODUCTION\\s*\\(.*000\\s*lbs.*\\)\\s*$"
-    output:
-      columns:
-        - plant
-        - period
-        - product
-        - element_code
-        - rate
-        - qty
-        - currency
-        - rate_uom
-        - source_path
-      defaults:
-        currency: "USD"
-        rate_uom: "USD/ton"
-    mapping:
-      cost_element_csv: "configs/map_cost_element.csv"
+        match:
+          type: contains_ilike
+          values:
+            - "PRODUCTION ( in 000 lbs )"
+            - "TOTAL PRODUCTION (000 lbs)"
+    cost_element_normalization:
+      - type: contains
+        pattern: "Materials"
+        to: "Materials"
+      - type: equals
+        pattern: "Electricity"
+        to: "Electricity"
+      - type: equals
+        pattern: "Gas"
+        to: "Gas"
+      - type: startswith
+        pattern: "R\\s*&\\s*M"
+        to: "R&M"
+      - type: startswith
+        pattern: "Manufacturing"
+        to: "Manufacturing"
+      - type: startswith
+        pattern: "Other"
+        to: "Other"
+      - type: equals
+        pattern: "Production\\s+Labor"
+        to: "Production Labor"
+      - type: startswith
+        pattern: "Repairs\\s*&\\s*Maintenance\\s*Labor"
+        to: "R&M Labor"
+      - type: equals
+        pattern: "R\\s*&\\s*M\\s*Labor"
+        to: "R&M Labor"
+      - type: contains
+        pattern: "Indirect\\s+Payroll"
+        to: "Indirect Labor"
+      - type: equals
+        pattern: "Supervision"
+        to: "Supervision"
+      - type: equals
+        pattern: "Depreciation"
+        to: "Depreciation"
+      - type: equals
+        pattern: "Insurance\\s*&\\s*Taxes"
+        to: "Insurance & Taxes"
+  cross_tab_tmb:
+    layout:
+      product_bands:
+        - product_row: 3
+          product_start_column: "B"
+          product_stride: 1
+          cost_elements:
+            label_column: "A"
+            start_row: 6
+        - product_row: 26
+          product_start_column: "B"
+          product_stride: 1
+          cost_elements:
+            label_column: "A"
+            start_row: 29
+      cost_elements:
+        stop_before_text_ilike: "Total Fixed Costs"
+        exclude_rows_ilike:
+          - "Total Fixed Costs"
+          - "Total Variable Costs"
+      production:
+        match:
+          type: contains_ilike
+          values:
+            - "PRODUCTION ( in 000 lbs )"
+            - "TOTAL PRODUCTION (000 lbs)"
+    cost_element_normalization:
+      - type: contains
+        pattern: "Materials"
+        to: "Materials"
+      - type: equals
+        pattern: "Electricity"
+        to: "Electricity"
+      - type: equals
+        pattern: "Gas"
+        to: "Gas"
+      - type: startswith
+        pattern: "R\\s*&\\s*M"
+        to: "R&M"
+      - type: startswith
+        pattern: "Manufacturing"
+        to: "Manufacturing"
+      - type: startswith
+        pattern: "Other"
+        to: "Other"
+      - type: equals
+        pattern: "Production\\s+Labor"
+        to: "Production Labor"
+      - type: startswith
+        pattern: "Repairs\\s*&\\s*Maintenance\\s*Labor"
+        to: "R&M Labor"
+      - type: equals
+        pattern: "R\\s*&\\s*M\\s*Labor"
+        to: "R&M Labor"
+      - type: contains
+        pattern: "Indirect\\s+Payroll"
+        to: "Indirect Labor"
+      - type: equals
+        pattern: "Supervision"
+        to: "Supervision"
+      - type: equals
+        pattern: "Depreciation"
+        to: "Depreciation"
+      - type: equals
+        pattern: "Insurance\\s*&\\s*Taxes"
+        to: "Insurance & Taxes"
+  cross_tab_ni_rc:
+    layout:
+      product_row: 3
+      product_start_column: "B"
+      product_stride: 3
+      cost_elements:
+        label_column: "A"
+        start_row: 6
+        stop_before_text_ilike: "Total Fixed Costs"
+        exclude_rows_ilike:
+          - "Total Fixed Costs"
+          - "Total Variable Costs"
+      production:
+        match:
+          type: contains_ilike
+          values:
+            - "PRODUCTION ( in 000 lbs )"
+            - "TOTAL PRODUCTION (000 lbs)"
+    cost_element_normalization:
+      - type: startswith
+        pattern: "Materials"
+        to: "Materials"
+      - type: equals
+        pattern: "Electricity"
+        to: "Electricity"
+      - type: equals
+        pattern: "Gas"
+        to: "Gas"
+      - type: startswith
+        pattern: "R\\s*&\\s*M"
+        to: "R&M"
+      - type: startswith
+        pattern: "Manufacturing"
+        to: "Manuf."
+      - type: startswith
+        pattern: "Other"
+        to: "Other"
+      - type: equals
+        pattern: "Production\\s+Labor"
+        to: "Production Labor"
+      - type: startswith
+        pattern: "Repairs\\s*&\\s*Maint"
+        to: "R&M Labor"
+      - type: contains
+        pattern: "Indirect\\s+Payroll"
+        to: "Indirect Labor"
+      - type: equals
+        pattern: "Supervision"
+        to: "Supervision"
+      - type: equals
+        pattern: "Depreciation"
+        to: "Depreciation"
+      - type: equals
+        pattern: "Insurance\\s*&\\s*Taxes"
+        to: "Insurance & Taxes"
+mapping:
+  cost_element_csv: "configs/map_cost_element.csv"
+output:
+  columns:
+    - plant
+    - period
+    - product
+    - element_code
+    - rate
+    - qty
+    - currency
+    - rate_uom
+    - source_path
+  defaults:
+    currency: "USD"
+    rate_uom: "USD/ton"
