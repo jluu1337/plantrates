@@ -35,6 +35,22 @@ def load_mapping_csv(path: Path) -> Dict[str, str]:
     return mapping
 
 
+def load_product_map_csv(path: Path) -> Dict[str, Dict[str, Optional[str]]]:
+    mapping: Dict[str, Dict[str, Optional[str]]] = {}
+    with path.open(newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            product = row.get("product")
+            if not product:
+                continue
+            key = normalize_product_key(product)
+            mapping[key] = {
+                "product": row.get("ProductMesh") or product,
+                "mat_group": row.get("MatGroup"),
+            }
+    return mapping
+
+
 def list_excels(root_folder: Path) -> List[Path]:
     if not root_folder.exists():
         return []
@@ -66,6 +82,12 @@ def normalize_text(value, trim: bool, collapse: bool) -> str:
     if collapse:
         text = re.sub(r"\s+", " ", text)
     return text
+
+
+def normalize_product_key(value: str) -> str:
+    if value is None:
+        return ""
+    return re.sub(r"\s+", " ", str(value).strip()).lower()
 
 
 def column_letter_to_index(letter: str) -> int:
@@ -193,7 +215,8 @@ def parse_band(
     layout_cfg: Dict,
     production_cfg: Dict,
     cost_rules: Sequence[Dict],
-    mapping: Optional[Dict[str, str]],
+    element_mapping: Optional[Dict[str, str]],
+    product_map: Dict[str, Dict[str, Optional[str]]],
     plant_code: str,
     period_date: pd.Timestamp,
     source_path: str,
@@ -210,9 +233,17 @@ def parse_band(
         return []
     product_row_idx = int(product_row) - 1
     start_col_idx = column_letter_to_index(start_column_letter)
-    products = extract_products(df, product_row_idx, start_col_idx, stride, norm_cfg)
-    if not products:
+    raw_products = extract_products(df, product_row_idx, start_col_idx, stride, norm_cfg)
+    if not raw_products:
         return []
+
+    products: List[Tuple[int, str, Optional[str]]] = []
+    for col_idx, label in raw_products:
+        key = normalize_product_key(label)
+        mapped = product_map.get(key)
+        normalized_product = mapped.get("product") if mapped else label
+        mat_group = mapped.get("mat_group") if mapped else None
+        products.append((col_idx, normalized_product, mat_group))
 
     base_cost_cfg = layout_cfg.get("cost_elements", {})
     band_cost_cfg = band_cfg.get("cost_elements", {})
@@ -252,7 +283,7 @@ def parse_band(
             and production_cfg
             and label_matches(label, production_cfg.get("match", {}))
         ):
-            for col_idx, product_name in products:
+            for col_idx, product_name, mat_group in products:
                 value = parse_numeric(get_cell(df, row_idx, col_idx))
                 if value is None:
                     continue
@@ -261,6 +292,7 @@ def parse_band(
                         "plant": plant_code,
                         "period": period_date,
                         "product": product_name,
+                        "mat_group": mat_group,
                         "element_code": PRODUCTION_ELEMENT_CODE,
                         "rate": None,
                         "qty": value,
@@ -272,11 +304,13 @@ def parse_band(
             continue
         normalized_label = apply_cost_rules(label, cost_rules)
         element_code = (
-            mapping.get(normalized_label) if mapping is not None else normalized_label
+            element_mapping.get(normalized_label)
+            if element_mapping is not None
+            else normalized_label
         )
         if element_code is None:
             element_code = normalized_label
-        for col_idx, product_name in products:
+        for col_idx, product_name, mat_group in products:
             value = parse_numeric(get_cell(df, row_idx, col_idx))
             if value is None:
                 continue
@@ -285,6 +319,7 @@ def parse_band(
                     "plant": plant_code,
                     "period": period_date,
                     "product": product_name,
+                    "mat_group": mat_group,
                     "element_code": element_code,
                     "rate": value,
                     "qty": None,
@@ -303,7 +338,7 @@ def parse_band(
             match_cfg=match_cfg,
         )
         if prod_row_idx is not None:
-            for col_idx, product_name in products:
+            for col_idx, product_name, mat_group in products:
                 value = parse_numeric(get_cell(df, prod_row_idx, col_idx))
                 if value is None:
                     continue
@@ -312,6 +347,7 @@ def parse_band(
                         "plant": plant_code,
                         "period": period_date,
                         "product": product_name,
+                        "mat_group": mat_group,
                         "element_code": PRODUCTION_ELEMENT_CODE,
                         "rate": None,
                         "qty": value,
@@ -325,7 +361,8 @@ def parse_band(
 def parse_sheet(
     df: pd.DataFrame,
     ruleset: Dict,
-    mapping: Optional[Dict[str, str]],
+    element_mapping: Optional[Dict[str, str]],
+    product_map: Dict[str, Dict[str, Optional[str]]],
     plant_code: str,
     period_date: pd.Timestamp,
     source_path: str,
@@ -345,7 +382,8 @@ def parse_sheet(
             layout_cfg=layout,
             production_cfg=production_cfg,
             cost_rules=cost_rules,
-            mapping=mapping,
+            element_mapping=element_mapping,
+            product_map=product_map,
             plant_code=plant_code,
             period_date=period_date,
             source_path=source_path,
@@ -423,12 +461,19 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parser.parse_args(argv)
 
     config = load_config()
-    mapping_rel_path = config.get("mapping", {}).get("cost_element_csv") if config.get("mapping") else None
-    mapping: Optional[Dict[str, str]] = None
-    if mapping_rel_path:
-        resolved = (PROJECT_ROOT / mapping_rel_path).resolve()
+    mapping_cfg = config.get("mapping") or {}
+    element_mapping: Optional[Dict[str, str]] = None
+    cost_map_path = mapping_cfg.get("cost_element_csv")
+    if cost_map_path:
+        resolved = (PROJECT_ROOT / cost_map_path).resolve()
         if resolved.exists():
-            mapping = load_mapping_csv(resolved)
+            element_mapping = load_mapping_csv(resolved)
+    product_map: Dict[str, Dict[str, Optional[str]]] = {}
+    product_map_path = mapping_cfg.get("product_map_csv")
+    if product_map_path:
+        resolved = (PROJECT_ROOT / product_map_path).resolve()
+        if resolved.exists():
+            product_map = load_product_map_csv(resolved)
 
     root_folder = Path(config["root_folder"])
     excel_files = list_excels(root_folder)
@@ -472,7 +517,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                     sheet_records = parse_sheet(
                         df=df,
                         ruleset=ruleset,
-                        mapping=mapping,
+                        element_mapping=element_mapping,
+                        product_map=product_map,
                         plant_code=plant_code,
                         period_date=period_date,
                         source_path=str(workbook_path),
@@ -500,6 +546,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 "plant",
                 "period",
                 "product",
+                "mat_group",
                 "element_code",
                 "rate",
                 "qty",
@@ -512,6 +559,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             .agg(
                 rate=("rate", lambda s: s.sum(min_count=1)),
                 qty=("qty", lambda s: s.sum(min_count=1)),
+                mat_group=("mat_group", "first"),
                 source_path=("source_path", lambda vals: "|".join(dict.fromkeys(v for v in vals if v))),
             )
             .reset_index()

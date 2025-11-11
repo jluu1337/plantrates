@@ -4,6 +4,7 @@ grain:
   - plant
   - period
   - product
+  - mat_group
   - cost_element
   - rate
   - qty
@@ -50,6 +51,8 @@ periods:
     Oct: "2026/10"
     Nov: "2026/11"
     Dec: "2026/12"
+mapping:
+  product_map_csv: "configs/product_map.csv"
 plants:
   - match: "(?i)EUF"
     plant_code: "EUF"
@@ -248,6 +251,7 @@ output:
     - plant
     - period
     - product
+    - mat_group
     - element_code
     - rate
     - qty
