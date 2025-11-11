@@ -5,7 +5,6 @@ import argparse
 import csv
 import sys
 import re
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -17,7 +16,7 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "configs" / "plants.yml"
 DEFAULT_OUT_DIR = PROJECT_ROOT / "data" / "tidy"
-
+PRODUCTION_ELEMENT_CODE = "__production_qty__"
 
 def load_config(path: Path = CONFIG_PATH) -> Dict:
     with path.open("r", encoding="utf-8") as fh:
@@ -99,9 +98,11 @@ def label_matches(label: str, match_cfg: Dict) -> bool:
     match_type = match_cfg.get("type")
     values = match_cfg.get("values", [])
     if match_type == "contains_ilike":
-        return any(re.search(val, label, re.IGNORECASE) for val in values)
+        label_lower = label.lower()
+        return any(val.lower() in label_lower for val in values)
     if match_type == "equals_ilike":
-        return any(re.fullmatch(val, label, re.IGNORECASE) for val in values)
+        label_lower = label.lower()
+        return any(label_lower == val.lower() for val in values)
     if match_type == "regex":
         return any(re.search(val, label, re.IGNORECASE) for val in values)
     return False
@@ -166,6 +167,26 @@ def extract_products(
     return products
 
 
+def find_production_row(
+    df: pd.DataFrame,
+    start_idx: int,
+    label_col_idx: int,
+    norm_cfg: Dict,
+    match_cfg: Dict,
+) -> Optional[int]:
+    trim = norm_cfg.get("trim_whitespace", False)
+    collapse = norm_cfg.get("collapse_internal_spaces", False)
+    total_rows = df.shape[0]
+    for row_idx in range(max(start_idx, 0), total_rows):
+        raw_label = get_cell(df, row_idx, label_col_idx)
+        label = normalize_text(raw_label, trim, collapse)
+        if not label:
+            continue
+        if label_matches(label, match_cfg):
+            return row_idx
+    return None
+
+
 def parse_band(
     df: pd.DataFrame,
     band_cfg: Dict,
@@ -178,7 +199,7 @@ def parse_band(
     period_date: pd.Timestamp,
     source_path: str,
     norm_cfg: Dict,
-) -> Tuple[List[Dict], List[Dict]]:
+) -> List[Dict]:
     trim = norm_cfg.get("trim_whitespace", False)
     collapse = norm_cfg.get("collapse_internal_spaces", False)
     product_row = band_cfg.get("product_row", layout_cfg.get("product_row"))
@@ -187,12 +208,12 @@ def parse_band(
     )
     stride = band_cfg.get("product_stride", layout_cfg.get("product_stride", 1))
     if product_row is None or start_column_letter is None:
-        return [], []
+        return []
     product_row_idx = int(product_row) - 1
     start_col_idx = column_letter_to_index(start_column_letter)
     products = extract_products(df, product_row_idx, start_col_idx, stride, norm_cfg)
     if not products:
-        return [], []
+        return []
 
     base_cost_cfg = layout_cfg.get("cost_elements", {})
     band_cost_cfg = band_cfg.get("cost_elements", {})
@@ -202,7 +223,7 @@ def parse_band(
     label_col_idx = column_letter_to_index(label_column_letter)
     start_row = band_cost_cfg.get("start_row", base_cost_cfg.get("start_row"))
     if start_row is None:
-        return [], []
+        return []
 
     stop_text = band_cost_cfg.get(
         "stop_before_text_ilike", base_cost_cfg.get("stop_before_text_ilike")
@@ -211,10 +232,10 @@ def parse_band(
         "exclude_rows_ilike", base_cost_cfg.get("exclude_rows_ilike", [])
     )
 
-    rates_rows: List[Dict] = []
-    qty_rows: List[Dict] = []
+    records: List[Dict] = []
     row_idx = int(start_row) - 1
     total_rows = df.shape[0]
+    production_recorded = False
 
     while row_idx < total_rows:
         raw_label = get_cell(df, row_idx, label_col_idx)
@@ -227,20 +248,29 @@ def parse_band(
         if any(contains_ilike(label, patt) for patt in exclude_rows):
             row_idx += 1
             continue
-        if production_cfg and label_matches(label, production_cfg.get("match", {})):
+        if (
+            not production_recorded
+            and production_cfg
+            and label_matches(label, production_cfg.get("match", {}))
+        ):
             for col_idx, product_name in products:
                 value = parse_numeric(get_cell(df, row_idx, col_idx))
                 if value is None:
                     continue
-                qty_rows.append(
+                records.append(
                     {
                         "plant": plant_code,
                         "period": period_date,
                         "product": product_name,
+                        "element_code": PRODUCTION_ELEMENT_CODE,
+                        "rate": None,
                         "qty": value,
+                        "currency": None,
+                        "rate_uom": None,
                         "source_path": source_path,
                     }
                 )
+            production_recorded = True
             row_idx += 1
             continue
         normalized_label = apply_cost_rules(label, cost_rules)
@@ -253,13 +283,14 @@ def parse_band(
             value = parse_numeric(get_cell(df, row_idx, col_idx))
             if value is None:
                 continue
-            rates_rows.append(
+            records.append(
                 {
                     "plant": plant_code,
                     "period": period_date,
                     "product": product_name,
                     "element_code": element_code,
                     "rate": value,
+                    "qty": None,
                     "currency": defaults.get("currency"),
                     "rate_uom": defaults.get("rate_uom"),
                     "source_path": source_path,
@@ -267,7 +298,35 @@ def parse_band(
             )
         row_idx += 1
 
-    return rates_rows, qty_rows
+    if production_cfg and not production_recorded:
+        match_cfg = production_cfg.get("match", {})
+        prod_row_idx = find_production_row(
+            df=df,
+            start_idx=row_idx,
+            label_col_idx=label_col_idx,
+            norm_cfg=norm_cfg,
+            match_cfg=match_cfg,
+        )
+        if prod_row_idx is not None:
+            for col_idx, product_name in products:
+                value = parse_numeric(get_cell(df, prod_row_idx, col_idx))
+                if value is None:
+                    continue
+                records.append(
+                    {
+                        "plant": plant_code,
+                        "period": period_date,
+                        "product": product_name,
+                        "element_code": PRODUCTION_ELEMENT_CODE,
+                        "rate": None,
+                        "qty": value,
+                        "currency": None,
+                        "rate_uom": None,
+                        "source_path": source_path,
+                    }
+                )
+
+    return records
 
 
 def parse_sheet(
@@ -279,17 +338,16 @@ def parse_sheet(
     period_date: pd.Timestamp,
     source_path: str,
     norm_cfg: Dict,
-) -> Tuple[List[Dict], List[Dict]]:
+) -> List[Dict]:
     layout = ruleset.get("layout", {})
     production_cfg = layout.get("production", {})
     cost_rules = ruleset.get("cost_element_normalization", [])
-    rates_rows: List[Dict] = []
-    qty_rows: List[Dict] = []
+    records: List[Dict] = []
 
     product_bands = layout.get("product_bands")
     bands = product_bands or [layout]
     for band in bands:
-        band_rates, band_qty = parse_band(
+        band_records = parse_band(
             df=df,
             band_cfg=band,
             layout_cfg=layout,
@@ -302,28 +360,23 @@ def parse_sheet(
             source_path=source_path,
             norm_cfg=norm_cfg,
         )
-        rates_rows.extend(band_rates)
-        qty_rows.extend(band_qty)
-    return rates_rows, qty_rows
+        records.extend(band_records)
+    return records
 
 
-def write_outputs(rates_df: pd.DataFrame, qty_df: pd.DataFrame, out_dir: Path) -> None:
+def write_outputs(tidy_df: pd.DataFrame, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     rates_parquet = out_dir / "rates_tidy.parquet"
     rates_csv = out_dir / "rates_tidy.csv"
-    prod_parquet = out_dir / "production_tidy.parquet"
-    prod_csv = out_dir / "production_tidy.csv"
 
-    rates_df.to_parquet(rates_parquet, index=False)
-    rates_df.to_csv(rates_csv, index=False)
-    qty_df.to_parquet(prod_parquet, index=False)
-    qty_df.to_csv(prod_csv, index=False)
+    tidy_df.to_parquet(rates_parquet, index=False)
+    tidy_df.to_csv(rates_csv, index=False)
 
 
-def validate_outputs(rates_df: pd.DataFrame, allowed_periods: Iterable[pd.Timestamp]) -> None:
+def validate_outputs(tidy_df: pd.DataFrame, allowed_periods: Iterable[pd.Timestamp]) -> None:
     allowed_set = set(allowed_periods)
     invalid_periods = set()
-    for period in pd.unique(rates_df["period"]):
+    for period in pd.unique(tidy_df["period"]):
         if pd.isna(period):
             invalid_periods.add(period)
         elif period not in allowed_set:
@@ -333,8 +386,8 @@ def validate_outputs(rates_df: pd.DataFrame, allowed_periods: Iterable[pd.Timest
         sys.exit(3)
 
     key_cols = ["plant", "period", "product", "element_code"]
-    if not rates_df.empty:
-        duplicates = rates_df[rates_df.duplicated(subset=key_cols, keep=False)]
+    if not tidy_df.empty:
+        duplicates = tidy_df[tidy_df.duplicated(subset=key_cols, keep=False)]
         if not duplicates.empty:
             print("Duplicate rate keys detected:", file=sys.stderr)
             print(duplicates[key_cols], file=sys.stderr)
@@ -349,10 +402,10 @@ def period_str_to_timestamp(period_str: str) -> pd.Timestamp:
     return pd.Timestamp(dt.year, dt.month, 1)
 
 
-def build_summary(df: pd.DataFrame, value_col: str, label: str) -> List[str]:
+def build_summary(df: pd.DataFrame, label: str) -> List[str]:
     if df.empty:
         return [f"{label}: 0 rows"]
-    counts = df.groupby("plant")[value_col].count()
+    counts = df.groupby("plant").size()
     summary = [f"{label}: {len(df)} rows"]
     for plant, count in counts.items():
         summary.append(f"  - {plant}: {count}")
@@ -400,8 +453,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     plants_cfg = config.get("plants", [])
     rulesets = config.get("rulesets", {})
 
-    rates_records: List[Dict] = []
-    qty_records: List[Dict] = []
+    records: List[Dict] = []
     files_processed = 0
 
     for workbook_path in excel_files:
@@ -427,7 +479,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                         sys.exit(3)
                     period_date = period_str_to_timestamp(period_str)
                     df = xls.parse(sheet_name=sheet_name, header=None, dtype=object)
-                    sheet_rates, sheet_qty = parse_sheet(
+                    sheet_records = parse_sheet(
                         df=df,
                         ruleset=ruleset,
                         defaults=defaults,
@@ -437,14 +489,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                         source_path=str(workbook_path),
                         norm_cfg=norm_cfg,
                     )
-                    if sheet_rates or sheet_qty:
+                    if sheet_records:
                         processed_sheet = True
-                        rates_records.extend(sheet_rates)
-                        qty_records.extend(sheet_qty)
+                        records.extend(sheet_records)
                         if args.verbose:
                             print(
                                 f"{workbook_path.name} [{sheet_name}] -> "
-                                f"{len(sheet_rates)} rates, {len(sheet_qty)} production rows."
+                                f"{sum(1 for r in sheet_records if r.get('rate') is not None)} rates, "
+                                f"{sum(1 for r in sheet_records if r.get('qty') is not None)} production rows."
                             )
         except Exception as exc:
             print(f"Failed to process {workbook_path}: {exc}", file=sys.stderr)
@@ -452,72 +504,61 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         if processed_sheet:
             files_processed += 1
 
-    rates_df = pd.DataFrame(rates_records)
-    qty_df = pd.DataFrame(qty_records)
-    if rates_df.empty:
-        rates_df = pd.DataFrame(
+    tidy_df = pd.DataFrame(records)
+    if tidy_df.empty:
+        tidy_df = pd.DataFrame(
             columns=[
                 "plant",
                 "period",
                 "product",
                 "element_code",
                 "rate",
+                "qty",
                 "currency",
                 "rate_uom",
                 "source_path",
             ]
         )
-    if qty_df.empty:
-        qty_df = pd.DataFrame(columns=["plant", "period", "product", "qty", "source_path"])
-
-    if not rates_df.empty:
-        rates_df = (
-            rates_df.groupby(["plant", "period", "product", "element_code"], dropna=False)
+    else:
+        tidy_df = (
+            tidy_df.groupby(["plant", "period", "product", "element_code"], dropna=False)
             .agg(
-                {
-                    "rate": "sum",
-                    "currency": "first",
-                    "rate_uom": "first",
-                    "source_path": lambda vals: "|".join(dict.fromkeys(vals)),
-                }
+                rate=("rate", lambda s: s.sum(min_count=1)),
+                qty=("qty", lambda s: s.sum(min_count=1)),
+                currency=("currency", "first"),
+                rate_uom=("rate_uom", "first"),
+                source_path=("source_path", lambda vals: "|".join(dict.fromkeys(v for v in vals if v))),
             )
             .reset_index()
         )
-        rates_df = rates_df[
-            [
-                "plant",
-                "period",
-                "product",
-                "element_code",
-                "rate",
-                "currency",
-                "rate_uom",
-                "source_path",
-            ]
-        ]
-    if not qty_df.empty:
-        qty_df = (
-            qty_df.groupby(["plant", "period", "product"], dropna=False)
-            .agg(
-                {
-                    "qty": "sum",
-                    "source_path": lambda vals: "|".join(dict.fromkeys(vals)),
-                }
-            )
-            .reset_index()
-        )
-        qty_df = qty_df[["plant", "period", "product", "qty", "source_path"]]
 
-    validate_outputs(rates_df, allowed_periods)
+    desired_columns = config.get("output", {}).get(
+        "columns",
+        [
+            "plant",
+            "period",
+            "product",
+            "element_code",
+            "rate",
+            "qty",
+            "currency",
+            "rate_uom",
+            "source_path",
+        ],
+    )
+    for col in desired_columns:
+        if col not in tidy_df.columns:
+            tidy_df[col] = None
+    tidy_df = tidy_df[desired_columns]
+
+    validate_outputs(tidy_df, allowed_periods)
 
     out_dir = Path(args.out_dir).resolve()
     if not args.dry_run:
-        write_outputs(rates_df, qty_df, out_dir)
+        write_outputs(tidy_df, out_dir)
 
     print(f"Workbooks processed: {files_processed}")
-    for line in build_summary(rates_df, "rate", "Rates tidy"):
-        print(line)
-    for line in build_summary(qty_df, "qty", "Production tidy"):
+    for line in build_summary(tidy_df, "Tidy rows"):
         print(line)
 
 

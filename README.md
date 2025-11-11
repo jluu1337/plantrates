@@ -50,12 +50,15 @@ Options:
 
 ## Outputs
 
-On success the script overwrites/creates the following (both CSV and Parquet):
+On success the script overwrites/creates a single tidy dataset (CSV + Parquet):
 
-- `data/tidy/rates_tidy.*` — columns `[plant, period, product, element_code, rate, currency, rate_uom, source_path]`.
-- `data/tidy/production_tidy.*` — columns `[plant, period, product, qty, source_path]`.
+- `data/tidy/rates_tidy.*` — columns `[plant, period, product, element_code, rate, qty, currency, rate_uom, source_path]`.
 
-The script collapses duplicate `(plant, period, product, element_code)` rows by summing `rate` (and `qty` for production) while retaining the first metadata values and concatenating source paths for lineage.
+Behavioral notes:
+
+- Cost-element rows populate `rate`, leave `qty` null, and use the canonical `element_code`.
+- Production rows populate `qty`, leave `rate` null, and use a sentinel element code (`__production_qty__`) so downstream logic can distinguish them.
+- Duplicate `(plant, period, product, element_code)` rows (e.g., duplicate product columns in the workbook) are summed and their source paths concatenated (unique order preserved).
 
 ## Validation & Troubleshooting
 
