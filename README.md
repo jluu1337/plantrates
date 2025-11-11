@@ -36,14 +36,6 @@ Adjust these entries when workbook formats change or new plants are introduced.
 
 ## Running the Builder
 
-Dry-run with verbose logging:
-
-```powershell
-python scripts/build_tidy.py --dry-run --verbose
-```
-
-This parses all configured workbooks, reports per-sheet row counts, and runs validation without writing files.
-
 Full run (writes outputs):
 
 ```powershell
