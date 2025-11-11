@@ -23,13 +23,25 @@ def load_config(path: Path = CONFIG_PATH) -> Dict:
         return yaml.safe_load(fh)
 
 
+def _normalize_row_keys(row: Dict[str, Optional[str]]) -> Dict[str, Optional[str]]:
+    normalized: Dict[str, Optional[str]] = {}
+    for key, value in row.items():
+        if key is None:
+            continue
+        cleaned_key = key.replace("\ufeff", "").strip()
+        normalized_key = cleaned_key.lower()
+        normalized[normalized_key] = value.strip() if isinstance(value, str) else value
+    return normalized
+
+
 def load_mapping_csv(path: Path) -> Dict[str, str]:
     mapping: Dict[str, str] = {}
     with path.open(newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
-            source_name = row.get("source_name")
-            element_code = row.get("element_code")
+            normalized = _normalize_row_keys(row)
+            source_name = normalized.get("source_name")
+            element_code = normalized.get("element_code")
             if source_name:
                 mapping[source_name] = element_code
     return mapping
@@ -40,13 +52,14 @@ def load_product_map_csv(path: Path) -> Dict[str, Dict[str, Optional[str]]]:
     with path.open(newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
-            product = row.get("product")
+            normalized = _normalize_row_keys(row)
+            product = normalized.get("product")
             if not product:
                 continue
             key = normalize_product_key(product)
             mapping[key] = {
-                "product": row.get("ProductMesh") or product,
-                "mat_group": row.get("MatGroup"),
+                "product": normalized.get("productmesh") or product,
+                "mat_group": normalized.get("matgroup"),
             }
     return mapping
 
