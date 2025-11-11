@@ -470,6 +470,44 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     if qty_df.empty:
         qty_df = pd.DataFrame(columns=["plant", "period", "product", "qty", "source_path"])
 
+    if not rates_df.empty:
+        rates_df = (
+            rates_df.groupby(["plant", "period", "product", "element_code"], dropna=False)
+            .agg(
+                {
+                    "rate": "sum",
+                    "currency": "first",
+                    "rate_uom": "first",
+                    "source_path": lambda vals: "|".join(dict.fromkeys(vals)),
+                }
+            )
+            .reset_index()
+        )
+        rates_df = rates_df[
+            [
+                "plant",
+                "period",
+                "product",
+                "element_code",
+                "rate",
+                "currency",
+                "rate_uom",
+                "source_path",
+            ]
+        ]
+    if not qty_df.empty:
+        qty_df = (
+            qty_df.groupby(["plant", "period", "product"], dropna=False)
+            .agg(
+                {
+                    "qty": "sum",
+                    "source_path": lambda vals: "|".join(dict.fromkeys(vals)),
+                }
+            )
+            .reset_index()
+        )
+        qty_df = qty_df[["plant", "period", "product", "qty", "source_path"]]
+
     validate_outputs(rates_df, allowed_periods)
 
     out_dir = Path(args.out_dir).resolve()
