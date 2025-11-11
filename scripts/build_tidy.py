@@ -5,7 +5,7 @@ import argparse
 import csv
 import sys
 import re
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
@@ -16,7 +16,6 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "configs" / "plants.yml"
-LOG_DIR = PROJECT_ROOT / "data" / "logs"
 DEFAULT_OUT_DIR = PROJECT_ROOT / "data" / "tidy"
 
 
@@ -173,13 +172,12 @@ def parse_band(
     layout_cfg: Dict,
     production_cfg: Dict,
     cost_rules: Sequence[Dict],
-    mapping: Dict[str, str],
+    mapping: Optional[Dict[str, str]],
     defaults: Dict[str, str],
     plant_code: str,
     period_date: pd.Timestamp,
     source_path: str,
     norm_cfg: Dict,
-    unmapped_counter: Counter,
 ) -> Tuple[List[Dict], List[Dict]]:
     trim = norm_cfg.get("trim_whitespace", False)
     collapse = norm_cfg.get("collapse_internal_spaces", False)
@@ -246,9 +244,11 @@ def parse_band(
             row_idx += 1
             continue
         normalized_label = apply_cost_rules(label, cost_rules)
-        element_code = mapping.get(normalized_label)
-        if normalized_label and element_code is None:
-            unmapped_counter[normalized_label] += 1
+        element_code = (
+            mapping.get(normalized_label) if mapping is not None else normalized_label
+        )
+        if element_code is None:
+            element_code = normalized_label
         for col_idx, product_name in products:
             value = parse_numeric(get_cell(df, row_idx, col_idx))
             if value is None:
@@ -274,12 +274,11 @@ def parse_sheet(
     df: pd.DataFrame,
     ruleset: Dict,
     defaults: Dict[str, str],
-    mapping: Dict[str, str],
+    mapping: Optional[Dict[str, str]],
     plant_code: str,
     period_date: pd.Timestamp,
     source_path: str,
     norm_cfg: Dict,
-    unmapped_counter: Counter,
 ) -> Tuple[List[Dict], List[Dict]]:
     layout = ruleset.get("layout", {})
     production_cfg = layout.get("production", {})
@@ -302,7 +301,6 @@ def parse_sheet(
             period_date=period_date,
             source_path=source_path,
             norm_cfg=norm_cfg,
-            unmapped_counter=unmapped_counter,
         )
         rates_rows.extend(band_rates)
         qty_rows.extend(band_qty)
@@ -320,16 +318,6 @@ def write_outputs(rates_df: pd.DataFrame, qty_df: pd.DataFrame, out_dir: Path) -
     rates_df.to_csv(rates_csv, index=False)
     qty_df.to_parquet(prod_parquet, index=False)
     qty_df.to_csv(prod_csv, index=False)
-
-
-def write_unmapped_log(counter: Counter, dry_run: bool) -> Path:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = LOG_DIR / "unmapped_cost_elements.csv"
-    rows = sorted(counter.items(), key=lambda kv: kv[0])
-    df = pd.DataFrame(rows, columns=["cost_name_norm", "count"])
-    if not dry_run:
-        df.to_csv(log_path, index=False)
-    return log_path
 
 
 def validate_outputs(rates_df: pd.DataFrame, allowed_periods: Iterable[pd.Timestamp]) -> None:
@@ -391,12 +379,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parser.parse_args(argv)
 
     config = load_config()
-    mapping_rel_path = config.get("mapping", {}).get("cost_element_csv")
-    if not mapping_rel_path:
-        print("Missing mapping cost element CSV path in config.", file=sys.stderr)
-        sys.exit(1)
-    mapping_path = (PROJECT_ROOT / mapping_rel_path).resolve()
-    mapping = load_mapping_csv(mapping_path)
+    mapping_rel_path = config.get("mapping", {}).get("cost_element_csv") if config.get("mapping") else None
+    mapping: Optional[Dict[str, str]] = None
+    if mapping_rel_path:
+        resolved = (PROJECT_ROOT / mapping_rel_path).resolve()
+        if resolved.exists():
+            mapping = load_mapping_csv(resolved)
 
     root_folder = Path(config["root_folder"])
     excel_files = list_excels(root_folder)
@@ -414,7 +402,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     rates_records: List[Dict] = []
     qty_records: List[Dict] = []
-    unmapped_counter: Counter = Counter()
     files_processed = 0
 
     for workbook_path in excel_files:
@@ -449,7 +436,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                         period_date=period_date,
                         source_path=str(workbook_path),
                         norm_cfg=norm_cfg,
-                        unmapped_counter=unmapped_counter,
                     )
                     if sheet_rates or sheet_qty:
                         processed_sheet = True
@@ -489,16 +475,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     out_dir = Path(args.out_dir).resolve()
     if not args.dry_run:
         write_outputs(rates_df, qty_df, out_dir)
-        write_unmapped_log(unmapped_counter, dry_run=False)
-    else:
-        write_unmapped_log(unmapped_counter, dry_run=True)
 
     print(f"Workbooks processed: {files_processed}")
     for line in build_summary(rates_df, "rate", "Rates tidy"):
         print(line)
     for line in build_summary(qty_df, "qty", "Production tidy"):
         print(line)
-    print(f"Unmapped cost elements: {sum(unmapped_counter.values())} (log: {LOG_DIR / 'unmapped_cost_elements.csv'})")
 
 
 if __name__ == "__main__":

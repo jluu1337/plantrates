@@ -243,8 +243,6 @@ rulesets:
       - type: equals
         pattern: "Insurance\\s*&\\s*Taxes"
         to: "Insurance & Taxes"
-mapping:
-  cost_element_csv: "configs/map_cost_element.csv"
 output:
   columns:
     - plant
