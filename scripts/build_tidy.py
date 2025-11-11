@@ -511,6 +511,19 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                         source_path=str(workbook_path),
                         norm_cfg=norm_cfg,
                     )
+                    qty_multipliers = plant_entry.get("qty_multipliers") or {}
+                    if qty_multipliers:
+                        for record in sheet_records:
+                            element_code = record.get("element_code")
+                            if element_code is None:
+                                continue
+                            factor = qty_multipliers.get(element_code)
+                            if factor is None:
+                                continue
+                            qty_value = record.get("qty")
+                            if qty_value is None:
+                                continue
+                            record["qty"] = qty_value * factor
                     if sheet_records:
                         processed_sheet = True
                         records.extend(sheet_records)

@@ -63,6 +63,8 @@ plants:
   - match: "(?i)(New\\s*Iberia|\\bNI\\b)"
     plant_code: "NI"
     ruleset: "cross_tab_ni_rc"
+    qty_multipliers:
+      Materials: 0.3333333333
   - match: "(?i)TMB"
     plant_code: "TMB"
     ruleset: "cross_tab_tmb"
