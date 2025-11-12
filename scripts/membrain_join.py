@@ -11,7 +11,7 @@ from typing import Dict, Tuple
 import pandas as pd
 
 
-DEFAULT_MEMBRAIN_QTY = Path("data/membrainmap/MembrainProductbyQTY&Period.csv")
+DEFAULT_MEMBRAIN_QTY = Path("data/salescogs/MembrainProductbyQTY&Period.csv")
 DEFAULT_MASTER_MAP = Path("data/membrainmap/membrain_mastermap.csv")
 DEFAULT_RATES_TIDY = Path("data/tidy/rates_tidy.csv")
 OUT_MEMBRAIN = Path("out/salescogs/membrainjoined.csv")
