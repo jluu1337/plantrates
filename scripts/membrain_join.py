@@ -110,21 +110,22 @@ def load_and_group_rates(path: Path) -> pd.DataFrame:
         path,
         dtype={
             "product": "string",
+            "plant": "string",
             "element_code": "string",
             "period_text": "string",
             "rate": "float64",
         },
-        usecols=["product", "element_code", "period_text", "rate"],
+        usecols=["product", "plant", "element_code", "period_text", "rate"],
     )
     _, period_key = parse_period_to_key(df["period_text"])
     df["PeriodKey"] = period_key
     grouped = (
-        df.groupby(["product", "element_code", "PeriodKey"], dropna=False)["rate"]
+        df.groupby(["product", "plant", "element_code", "PeriodKey"], dropna=False)["rate"]
         .sum(min_count=1)
         .reset_index()
     )
     grouped = grouped.rename(
-        columns={"product": "PlantProductMesh", "rate": "Rate"}
+        columns={"product": "PlantProductMesh", "plant": "Plant", "rate": "Rate"}
     )
     grouped["PlantProductMesh_norm"] = normalize_key(grouped["PlantProductMesh"])
     if grouped[["PlantProductMesh", "element_code", "PeriodKey"]].isna().any().any():
@@ -193,7 +194,7 @@ def main() -> None:
 
     grouped = rates_grouped.copy()
     metrics.grouped_rates_rows = len(grouped)
-    grouped[["PlantProductMesh", "element_code", "PeriodKey", "Rate"]].to_csv(args.out_grouped, index=False)
+    grouped[["Plant", "PlantProductMesh", "element_code", "PeriodKey", "Rate"]].to_csv(args.out_grouped, index=False)
 
     merged = grouped.merge(
         membrain_joined[["PlantProductMesh_norm", "PeriodKey", "QTY", "MembrainProductMesh"]],
@@ -211,6 +212,7 @@ def main() -> None:
 
     merged = merged[
         [
+            "Plant",
             "PlantProductMesh",
             "element_code",
             "PeriodKey",
