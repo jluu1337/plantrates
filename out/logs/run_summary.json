@@ -1,6 +1,6 @@
 {
-  "start_ts": "2025-11-12T18:49:31.858716",
-  "end_ts": "2025-11-12T18:49:32.116358",
+  "start_ts": "2025-11-12T21:24:42.288791",
+  "end_ts": "2025-11-12T21:24:42.769900",
   "metrics": {
     "membrain_qty_rows": 410,
     "master_map_rows": 90,
@@ -8,7 +8,7 @@
     "membrain_joined_rows": 410,
     "grouped_rates_rows": 7658,
     "merged_rows": 10020,
-    "zero_groups_adjusted": 301,
-    "rows_rate_changed": 4851
+    "zero_groups_adjusted": 444,
+    "rows_rate_changed": 6752
   }
 }

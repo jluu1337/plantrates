@@ -138,27 +138,36 @@ def apply_carry_forward(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, int]:
     df["Period_dt"] = pd.to_datetime(df["PeriodKey"], format="%Y-%m")
     df = df.sort_values(["PlantProductMesh", "element_code", "Period_dt"])
 
-    all_zero = (
-        df.groupby(["PlantProductMesh", "PeriodKey"])["Rate"].apply(lambda s: (s == 0).all()).rename("all_zero")
-    )
-    df = df.merge(all_zero, on=["PlantProductMesh", "PeriodKey"], how="left")
+    df["rate_fill_flag"] = "original"
 
-    running_fill = (
-        df.sort_values("Period_dt")
-        .groupby(["PlantProductMesh", "element_code"])["Rate"]
+    all_zero_forward = df.groupby(["PlantProductMesh", "PeriodKey"])["Rate"].transform(lambda s: (s == 0).all())
+    forward_fill = (
+        df.groupby(["PlantProductMesh", "element_code"])["Rate"]
         .transform(lambda s: s.replace(0, pd.NA).ffill())
     )
-    df["running_fill"] = pd.to_numeric(running_fill, errors="coerce")
+    forward_fill = pd.to_numeric(forward_fill, errors="coerce")
 
-    changed_mask = (df["all_zero"]) & (df["Rate"] == 0) & df["running_fill"].notna()
-    df.loc[changed_mask, "Rate"] = df.loc[changed_mask, "running_fill"]
-    df["rate_fill_flag"] = "original"
-    df.loc[changed_mask, "rate_fill_flag"] = "carry_forward_all_zero_period"
+    forward_mask = all_zero_forward & (df["Rate"] == 0) & forward_fill.notna()
+    df.loc[forward_mask, "Rate"] = forward_fill[forward_mask]
+    df.loc[forward_mask, "rate_fill_flag"] = "carry_forward_all_zero_period"
 
-    zero_groups_adjusted = df.loc[changed_mask, ["PlantProductMesh", "PeriodKey"]].drop_duplicates().shape[0]
-    rows_changed = changed_mask.sum()
+    remaining_zero = df.groupby(["PlantProductMesh", "PeriodKey"])["Rate"].transform(lambda s: (s == 0).all())
+    backfill = (
+        df.groupby(["PlantProductMesh", "element_code"])["Rate"]
+        .transform(lambda s: s.iloc[::-1].replace(0, pd.NA).ffill().iloc[::-1])
+    )
+    backfill = pd.to_numeric(backfill, errors="coerce")
 
-    df = df.drop(columns=["Period_dt", "all_zero", "running_fill"])
+    back_mask = remaining_zero & (df["Rate"] == 0) & backfill.notna()
+    df.loc[back_mask, "Rate"] = backfill[back_mask]
+    df.loc[back_mask & (df["rate_fill_flag"] == "original"), "rate_fill_flag"] = "carry_back_all_zero_period"
+
+    forward_groups = df.loc[forward_mask, ["PlantProductMesh", "PeriodKey"]].drop_duplicates()
+    back_groups = df.loc[back_mask, ["PlantProductMesh", "PeriodKey"]].drop_duplicates()
+    zero_groups_adjusted = pd.concat([forward_groups, back_groups], ignore_index=True).drop_duplicates().shape[0]
+    rows_changed = int(forward_mask.sum() + back_mask.sum())
+
+    df = df.drop(columns=["Period_dt"])
     df = df.sort_values(["PlantProductMesh", "element_code", "PeriodKey"])
     return df, zero_groups_adjusted, rows_changed
 
