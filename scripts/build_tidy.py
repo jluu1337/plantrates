@@ -555,6 +555,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             columns=[
                 "plant",
                 "period",
+                "period_text",
                 "product",
                 "mat_group",
                 "element_code",
@@ -577,12 +578,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         )
         tidy_df["rate"] = tidy_df["rate"].round(3)
         tidy_df["cost"] = tidy_df["rate"] * (tidy_df["qty"] * 1000.0)
+        tidy_df["period_text"] = tidy_df["period"].dt.strftime("%Y/%m")
 
     desired_columns = config.get("output", {}).get(
         "columns",
         [
             "plant",
             "period",
+            "period_text",
             "product",
             "mat_group",
             "element_code",

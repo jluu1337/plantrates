@@ -252,6 +252,7 @@ output:
   columns:
     - plant
     - period
+    - period_text
     - product
     - mat_group
     - element_code
