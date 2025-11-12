@@ -46,15 +46,33 @@ class Metrics:
     zero_groups_adjusted: int = 0
     rows_rate_changed: int = 0
 
+    def to_dict(self) -> Dict[str, int]:
+        return {key: int(value) for key, value in asdict(self).items()}
+
 
 def load_membrain_qty(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(
-        path,
-        dtype={"ProductMesh": "string", "MembrainProductMesh": "string", "Period": "string"},
-        usecols=lambda c: c in {"ProductMesh", "MembrainProductMesh", "Period", "QTY"},
+    df = pd.read_csv(path, dtype="string")
+    lower_cols = {col.lower(): col for col in df.columns}
+
+    def find_col(substr: str) -> str:
+        for key, orig in lower_cols.items():
+            if substr in key:
+                return orig
+        raise KeyError(f"Expected column containing '{substr}' in {path}")
+
+    period_col = find_col("period")
+    qty_col = find_col("qty")
+    product_col = find_col("productmesh")
+
+    df = df.rename(
+        columns={
+            period_col: "Period",
+            qty_col: "QTY",
+            product_col: "MembrainProductMesh",
+        }
     )
-    if "MembrainProductMesh" not in df.columns:
-        df = df.rename(columns={"ProductMesh": "MembrainProductMesh"})
+
+    df["MembrainProductMesh"] = df["MembrainProductMesh"].astype("string").fillna("")
     df["QTY"] = pd.to_numeric(df["QTY"], errors="coerce").fillna(0.0)
     _, period_key = parse_period_to_key(df["Period"])
     df["PeriodKey"] = period_key
@@ -124,11 +142,12 @@ def apply_carry_forward(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, int]:
     )
     df = df.merge(all_zero, on=["PlantProductMesh", "PeriodKey"], how="left")
 
-    df["running_fill"] = (
+    running_fill = (
         df.sort_values("Period_dt")
         .groupby(["PlantProductMesh", "element_code"])["Rate"]
-        .apply(lambda s: s.replace(0, pd.NA).ffill())
+        .transform(lambda s: s.replace(0, pd.NA).ffill())
     )
+    df["running_fill"] = pd.to_numeric(running_fill, errors="coerce")
 
     changed_mask = (df["all_zero"]) & (df["Rate"] == 0) & df["running_fill"].notna()
     df.loc[changed_mask, "Rate"] = df.loc[changed_mask, "running_fill"]
@@ -211,7 +230,7 @@ def main() -> None:
             {
                 "start_ts": start_ts,
                 "end_ts": datetime.utcnow().isoformat(),
-                "metrics": asdict(metrics),
+                "metrics": metrics.to_dict(),
             },
             fh,
             indent=2,
