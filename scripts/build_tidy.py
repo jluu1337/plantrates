@@ -575,6 +575,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             )
             .reset_index()
         )
+        tidy_df["rate"] = tidy_df["rate"].round(3)
         tidy_df["cost"] = tidy_df["rate"] * (tidy_df["qty"] * 1000.0)
 
     desired_columns = config.get("output", {}).get(
