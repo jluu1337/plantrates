@@ -1,14 +1,14 @@
 {
-  "start_ts": "2025-11-12T18:41:40.246070",
-  "end_ts": "2025-11-12T18:41:40.489863",
+  "start_ts": "2025-11-12T18:49:31.858716",
+  "end_ts": "2025-11-12T18:49:32.116358",
   "metrics": {
     "membrain_qty_rows": 410,
     "master_map_rows": 90,
-    "rates_rows": 7220,
+    "rates_rows": 7658,
     "membrain_joined_rows": 410,
-    "grouped_rates_rows": 7220,
-    "merged_rows": 9527,
+    "grouped_rates_rows": 7658,
+    "merged_rows": 10020,
     "zero_groups_adjusted": 301,
-    "rows_rate_changed": 4578
+    "rows_rate_changed": 4851
   }
 }

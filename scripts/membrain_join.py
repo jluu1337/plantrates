@@ -210,6 +210,8 @@ def main() -> None:
     metrics.rows_rate_changed = rows_changed
     metrics.merged_rows = len(merged)
 
+    merged["Cost"] = merged["Rate"] * merged["Forecasted_Qty"]
+
     merged = merged[
         [
             "Plant",
@@ -217,6 +219,7 @@ def main() -> None:
             "element_code",
             "PeriodKey",
             "Rate",
+            "Cost",
             "rate_fill_flag",
             "Forecasted_Qty",
             "MembrainProductMesh",
