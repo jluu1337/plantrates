@@ -257,4 +257,5 @@ output:
     - element_code
     - rate
     - qty
+    - cost
     - source_path

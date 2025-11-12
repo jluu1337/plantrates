@@ -384,9 +384,19 @@ def write_outputs(tidy_df: pd.DataFrame, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     rates_parquet = out_dir / "rates_tidy.parquet"
     rates_csv = out_dir / "rates_tidy.csv"
+    cost_parquet = out_dir / "costs_by_period.parquet"
+    cost_csv = out_dir / "costs_by_period.csv"
 
     tidy_df.to_parquet(rates_parquet, index=False)
     tidy_df.to_csv(rates_csv, index=False)
+
+    cost_view = (
+        tidy_df.groupby("period", dropna=False)
+        .agg(cost=("cost", lambda s: s.sum(min_count=1)))
+        .reset_index()
+    )
+    cost_view.to_parquet(cost_parquet, index=False)
+    cost_view.to_csv(cost_csv, index=False)
 
 
 def validate_outputs(tidy_df: pd.DataFrame, allowed_periods: Iterable[pd.Timestamp]) -> None:
@@ -550,6 +560,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 "element_code",
                 "rate",
                 "qty",
+                "cost",
                 "source_path",
             ]
         )
@@ -564,6 +575,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             )
             .reset_index()
         )
+        tidy_df["cost"] = tidy_df["rate"] * tidy_df["qty"]
 
     desired_columns = config.get("output", {}).get(
         "columns",
@@ -571,9 +583,11 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             "plant",
             "period",
             "product",
+            "mat_group",
             "element_code",
             "rate",
             "qty",
+            "cost",
             "source_path",
         ],
     )
