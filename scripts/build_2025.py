@@ -198,17 +198,43 @@ def build_records(source_dir: Path) -> List[Dict[str, object]]:
     return records
 
 
-def write_outputs(df: pd.DataFrame, out_dir: Path) -> None:
+def build_weighted_rates(df: pd.DataFrame) -> pd.DataFrame:
+    weighted = (
+        df.dropna(subset=["product"])
+        .groupby(["plant", "product"], dropna=False, as_index=False)
+        .agg(
+            total_qty=("qty", lambda s: s.sum(min_count=1)),
+            total_cost=("cost", lambda s: s.sum(min_count=1)),
+        )
+    )
+    weighted["weighted_cost_lb"] = weighted["total_cost"] / weighted["total_qty"]
+    # Avoid divide-by-zero noise
+    weighted.loc[weighted["total_qty"] == 0, "weighted_cost_lb"] = pd.NA
+    cols = ["plant", "product", "weighted_cost_lb", "total_qty", "total_cost"]
+    return weighted[cols].sort_values(["plant", "product"]).reset_index(drop=True)
+
+
+def write_outputs(detail_df: pd.DataFrame, weighted_df: pd.DataFrame, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out_dir / "plant_rates_2025.csv"
     parquet_path = out_dir / "plant_rates_2025.parquet"
-    df.to_csv(csv_path, index=False, encoding="utf-8")
-    print(f"Wrote {len(df)} rows to {csv_path}")
+    detail_df.to_csv(csv_path, index=False, encoding="utf-8")
+    print(f"Wrote {len(detail_df)} rows to {csv_path}")
     try:
-        df.to_parquet(parquet_path, index=False)
-        print(f"Wrote {len(df)} rows to {parquet_path}")
+        detail_df.to_parquet(parquet_path, index=False)
+        print(f"Wrote {len(detail_df)} rows to {parquet_path}")
     except Exception as exc:
         print(f"Warning: failed to write parquet output ({exc})", file=sys.stderr)
+
+    weighted_csv = out_dir / "plant_rates_2025_weighted.csv"
+    weighted_parquet = out_dir / "plant_rates_2025_weighted.parquet"
+    weighted_df.to_csv(weighted_csv, index=False, encoding="utf-8")
+    print(f"Wrote {len(weighted_df)} rows to {weighted_csv}")
+    try:
+        weighted_df.to_parquet(weighted_parquet, index=False)
+        print(f"Wrote {len(weighted_df)} rows to {weighted_parquet}")
+    except Exception as exc:
+        print(f"Warning: failed to write weighted parquet output ({exc})", file=sys.stderr)
 
 
 def parse_args() -> argparse.Namespace:
@@ -239,9 +265,12 @@ def main() -> None:
 
     df = pd.DataFrame(records)
     df = df[["plant", "period", "product", "cost_lb", "qty"]]
+    df["cost"] = df["cost_lb"] * df["qty"]
     df = df.sort_values(["plant", "period", "product"]).reset_index(drop=True)
 
-    write_outputs(df, args.out_dir)
+    weighted_df = build_weighted_rates(df)
+
+    write_outputs(df, weighted_df, args.out_dir)
 
     counts = df.groupby("plant").size().to_dict()
     for plant, count in sorted(counts.items()):
