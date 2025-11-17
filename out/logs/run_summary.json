@@ -1,14 +1,14 @@
 {
-  "start_ts": "2025-11-12T21:26:07.178792",
-  "end_ts": "2025-11-12T21:26:07.590403",
+  "start_ts": "2025-11-17T16:12:41.470837",
+  "end_ts": "2025-11-17T16:12:41.939473",
   "metrics": {
-    "membrain_qty_rows": 410,
-    "master_map_rows": 90,
-    "rates_rows": 7658,
-    "membrain_joined_rows": 410,
-    "grouped_rates_rows": 7658,
-    "merged_rows": 10020,
-    "zero_groups_adjusted": 444,
-    "rows_rate_changed": 6752
+    "membrain_qty_rows": 413,
+    "master_map_rows": 92,
+    "rates_rows": 7653,
+    "membrain_joined_rows": 413,
+    "grouped_rates_rows": 7653,
+    "merged_rows": 10077,
+    "zero_groups_adjusted": 413,
+    "rows_rate_changed": 6352
   }
 }
