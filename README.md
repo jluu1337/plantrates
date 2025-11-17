@@ -37,17 +37,27 @@ Adjust these entries when workbook formats change or new plants are introduced.
 
 ## Running the Builder
 
-Full run (writes outputs):
+### Quick start
 
-```powershell
-python scripts/build_tidy.py
-```
+1. **Activate the virtual environment** described above so `pandas`, `pyarrow`, `pyyaml`, and `openpyxl` are available.
+2. **Set `configs/plants.yml:root_folder`** to the directory that contains the Excel workbooks (UNC share in production or a local folder for testing). Confirm the `periods`, `plants`, and `rulesets` entries cover the files you plan to ingest.
+3. **Dry-run the parser** to validate sheet layouts without touching output files:
+   ```powershell
+   python scripts/build_tidy.py --dry-run --verbose
+   ```
+   This prints workbook/sheet counts and any validation errors while leaving `data/tidy` untouched.
+4. **Execute a full build** once the dry-run succeeds:
+   ```powershell
+   python scripts/build_tidy.py --out-dir data/tidy
+   ```
+   Omit `--out-dir` to use the default folder, or point it to another location/UNC share when needed.
+5. **Inspect the outputs** (`data/tidy/rates_tidy.*`, `data/tidy/costs_by_period.*`) and the console summary. The script exits with non-zero status if validation fails, so a clean run always ends with the "Workbooks processed" summary.
 
-Options:
+### Additional flags
 
-- `--out-dir PATH` — override the default `data/tidy` output directory.
-- `--dry-run` — parse/validate only; no files written.
-- `--verbose` — echo per-sheet parsing summaries.
+- `--out-dir PATH` – override the default `data/tidy` output directory.
+- `--dry-run` – parse/validate only; no files written.
+- `--verbose` – echo per-sheet parsing summaries.
 
 ## Outputs
 
