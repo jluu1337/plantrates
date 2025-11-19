@@ -54,14 +54,18 @@ def load_facad_map(path: Path) -> pd.DataFrame:
 def load_facad_cost(path: Path) -> pd.DataFrame:
     df = pd.read_excel(path, dtype="object")
     df = df.rename(columns=lambda col: str(col).strip())
-    required = ["Product", "Facad Adder", "Plt"]
-    missing = [col for col in required if col not in df.columns]
+    # Excel reference: col E = "$/lb (2026) V1", col F = "Facad Adder"
+    required = ["Product", "Plt"]
+    delta_cols = ["Facad Adder", "$/lb (2026) V1"]
+    missing = [col for col in required + delta_cols if col not in df.columns]
     if missing:
         raise KeyError(f"Missing expected columns {missing} in {path}")
-    df = df[required].copy()
+    df = df[required + delta_cols].copy()
     df["Product_norm"] = normalize_key(df["Product"])
-    df["Facad Adder"] = pd.to_numeric(df["Facad Adder"], errors="coerce")
-    return df
+    adder = pd.to_numeric(df["Facad Adder"], errors="coerce")
+    base = pd.to_numeric(df["$/lb (2026) V1"], errors="coerce")
+    df["rate"] = (adder - base).fillna(0.0)
+    return df[["Product_norm", "Product", "Plt", "rate"]]
 
 
 def build_facad_rates(membrain_qty: pd.DataFrame, facad_map: pd.DataFrame, facad_cost: pd.DataFrame) -> pd.DataFrame:
@@ -70,7 +74,7 @@ def build_facad_rates(membrain_qty: pd.DataFrame, facad_map: pd.DataFrame, facad
     mapped["Product_norm"] = normalize_key(mapped["Product"])
 
     joined = mapped.merge(facad_cost, on="Product_norm", how="left", suffixes=("", "_facad"))
-    joined["rate"] = pd.to_numeric(joined["Facad Adder"], errors="coerce").fillna(0.0)
+    joined["rate"] = pd.to_numeric(joined["rate"], errors="coerce").fillna(0.0)
     joined["plant"] = joined["Plt"].astype("string").fillna("")
     joined["cost"] = joined["rate"] * joined["QTY"]
 
