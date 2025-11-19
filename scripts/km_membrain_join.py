@@ -73,7 +73,8 @@ def load_membrain_qty(path: Path) -> pd.DataFrame:
     )
 
     df["MembrainProductMesh"] = df["MembrainProductMesh"].astype("string").fillna("")
-    df["QTY"] = pd.to_numeric(df["QTY"], errors="coerce").fillna(0.0)
+    qty_clean = df["QTY"].astype("string").str.replace(",", "", regex=False).str.strip()
+    df["QTY"] = pd.to_numeric(qty_clean, errors="coerce").fillna(0.0)
     _, period_key = parse_period_to_key(df["Period"])
     df["PeriodKey"] = period_key
     df["MembrainProductMesh_norm"] = normalize_key(df["MembrainProductMesh"])
