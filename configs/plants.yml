@@ -195,9 +195,13 @@ rulesets:
         to: "Insurance & Taxes"
   cross_tab_ni_rc:
     layout:
-      product_row: 3
-      product_start_column: "B"
-      product_stride: 3
+      product_bands:
+        - product_row: 3
+          product_start_column: "B"
+          product_stride: 3
+        - product_row: 34
+          product_start_column: "B"
+          product_stride: 3
       cost_elements:
         label_column: "A"
         start_row: 6
