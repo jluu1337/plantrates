@@ -103,6 +103,9 @@ def build_membrain_join(mem_qty: pd.DataFrame, master_map: pd.DataFrame) -> pd.D
     joined["PlantProductMesh"] = joined["PlantProductMesh"].fillna(joined["MembrainProductMesh"])
     result = joined[["PlantProductMesh", "MembrainProductMesh", "PeriodKey", "QTY"]].copy()
     result["PlantProductMesh_norm"] = normalize_key(result["PlantProductMesh"])
+    # Deduplicate by product/period, keeping the highest quantity row
+    result = result.sort_values(["PlantProductMesh_norm", "PeriodKey", "QTY"], ascending=[True, True, False])
+    result = result.drop_duplicates(subset=["PlantProductMesh_norm", "PeriodKey"], keep="first")
     return result
 
 
@@ -130,39 +133,24 @@ def load_and_group_rates(path: Path) -> pd.DataFrame:
         columns={"product": "PlantProductMesh", "plant": "Plant", "rate": "Rate", "qty": "Qty"}
     )
     grouped["PlantProductMesh_norm"] = normalize_key(grouped["PlantProductMesh"])
+    # Choose the plant with highest Qty per product/period, then keep only that plant's rates
+    totals = (
+        grouped.groupby(["PlantProductMesh_norm", "PeriodKey", "Plant"], dropna=False)["Qty"]
+        .sum(min_count=1)
+        .reset_index(name="TotalQty")
+    )
+    best = (
+        totals.sort_values(["PlantProductMesh_norm", "PeriodKey", "TotalQty"], ascending=[True, True, False])
+        .drop_duplicates(subset=["PlantProductMesh_norm", "PeriodKey"], keep="first")
+    )
+    grouped = grouped.merge(
+        best[["PlantProductMesh_norm", "PeriodKey", "Plant"]],
+        on=["PlantProductMesh_norm", "PeriodKey", "Plant"],
+        how="inner",
+    )
     if grouped[["PlantProductMesh", "element_code", "PeriodKey"]].isna().any().any():
         raise ValueError("Nulls detected in key columns after grouping rates.")
     return grouped
-
-
-def apply_custom_accucast_override(merged: pd.DataFrame, grouped_rates: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
-    """
-    For ACCUCAST HT 50, set NI 2026-01 rates to the MCI 2025-12 rates (per element).
-    """
-    df = merged.copy()
-    target_norm = normalize_key(pd.Series(["ACCUCAST HT 50"])).iloc[0]
-
-    mci_prior = grouped_rates[
-        (grouped_rates["Plant"] == "MCI")
-        & (grouped_rates["PlantProductMesh_norm"] == target_norm)
-        & (grouped_rates["PeriodKey"] == "2025-12")
-    ].set_index("element_code")["Rate"]
-    if mci_prior.empty:
-        return df, 0
-
-    mask = (
-        (df["Plant"] == "NI")
-        & (df["PlantProductMesh_norm"] == target_norm)
-        & (df["PeriodKey"] == "2026-01")
-    )
-    if not mask.any():
-        return df, 0
-
-    before = df.loc[mask, "Rate"].copy()
-    df.loc[mask, "Rate"] = df.loc[mask, "element_code"].map(mci_prior).fillna(df.loc[mask, "Rate"])
-    changed = (df.loc[mask, "Rate"] != before).sum()
-    df.loc[mask, "rate_fill_flag"] = "custom_mci_dec_2025_to_jan_2026"
-    return df, int(changed)
 
 
 def apply_carry_forward(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, int]:
@@ -250,9 +238,8 @@ def main() -> None:
     merged["Forecasted_Qty"] = pd.to_numeric(merged["Forecasted_Qty"], errors="coerce")
 
     merged, zero_groups, rows_changed = apply_carry_forward(merged)
-    merged, custom_changed = apply_custom_accucast_override(merged, grouped)
     metrics.zero_groups_adjusted = zero_groups
-    metrics.rows_rate_changed = rows_changed + custom_changed
+    metrics.rows_rate_changed = rows_changed
     metrics.merged_rows = len(merged)
 
     merged["Cost"] = merged["Rate"] * merged["Forecasted_Qty"]
@@ -264,6 +251,7 @@ def main() -> None:
             "element_code",
             "PeriodKey",
             "Rate",
+            "Qty",
             "Cost",
             "rate_fill_flag",
             "Forecasted_Qty",

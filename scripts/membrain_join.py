@@ -103,6 +103,9 @@ def build_membrain_join(mem_qty: pd.DataFrame, master_map: pd.DataFrame) -> pd.D
     joined["PlantProductMesh"] = joined["PlantProductMesh"].fillna(joined["MembrainProductMesh"])
     result = joined[["PlantProductMesh", "MembrainProductMesh", "PeriodKey", "QTY"]].copy()
     result["PlantProductMesh_norm"] = normalize_key(result["PlantProductMesh"])
+    # Deduplicate by product/period, keeping the highest quantity row
+    result = result.sort_values(["PlantProductMesh_norm", "PeriodKey", "QTY"], ascending=[True, True, False])
+    result = result.drop_duplicates(subset=["PlantProductMesh_norm", "PeriodKey"], keep="first")
     return result
 
 
@@ -130,6 +133,21 @@ def load_and_group_rates(path: Path) -> pd.DataFrame:
         columns={"product": "PlantProductMesh", "plant": "Plant", "rate": "Rate", "qty": "Qty"}
     )
     grouped["PlantProductMesh_norm"] = normalize_key(grouped["PlantProductMesh"])
+    # Choose the plant with highest Qty per product/period, then keep only that plant's rates
+    totals = (
+        grouped.groupby(["PlantProductMesh_norm", "PeriodKey", "Plant"], dropna=False)["Qty"]
+        .sum(min_count=1)
+        .reset_index(name="TotalQty")
+    )
+    best = (
+        totals.sort_values(["PlantProductMesh_norm", "PeriodKey", "TotalQty"], ascending=[True, True, False])
+        .drop_duplicates(subset=["PlantProductMesh_norm", "PeriodKey"], keep="first")
+    )
+    grouped = grouped.merge(
+        best[["PlantProductMesh_norm", "PeriodKey", "Plant"]],
+        on=["PlantProductMesh_norm", "PeriodKey", "Plant"],
+        how="inner",
+    )
     if grouped[["PlantProductMesh", "element_code", "PeriodKey"]].isna().any().any():
         raise ValueError("Nulls detected in key columns after grouping rates.")
     return grouped
@@ -233,6 +251,7 @@ def main() -> None:
             "element_code",
             "PeriodKey",
             "Rate",
+            "Qty",
             "Cost",
             "rate_fill_flag",
             "Forecasted_Qty",
