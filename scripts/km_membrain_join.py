@@ -177,21 +177,9 @@ def apply_carry_forward(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, int]:
     df.loc[forward_mask, "Rate"] = forward_fill[forward_mask]
     df.loc[forward_mask, "rate_fill_flag"] = "carry_forward_all_zero_period"
 
-    remaining_zero = df.groupby(plant_period_group)["Rate"].transform(lambda s: (s == 0).all())
-    backfill = (
-        df.groupby(plant_element_group)["Rate"]
-        .transform(lambda s: s.iloc[::-1].replace(0, pd.NA).ffill().iloc[::-1])
-    )
-    backfill = pd.to_numeric(backfill, errors="coerce")
-
-    back_mask = remaining_zero & (df["Rate"] == 0) & backfill.notna()
-    df.loc[back_mask, "Rate"] = backfill[back_mask]
-    df.loc[back_mask & (df["rate_fill_flag"] == "original"), "rate_fill_flag"] = "carry_back_all_zero_period"
-
     forward_groups = df.loc[forward_mask, ["Plant", "PlantProductMesh", "PeriodKey"]].drop_duplicates()
-    back_groups = df.loc[back_mask, ["Plant", "PlantProductMesh", "PeriodKey"]].drop_duplicates()
-    zero_groups_adjusted = pd.concat([forward_groups, back_groups], ignore_index=True).drop_duplicates().shape[0]
-    rows_changed = int(forward_mask.sum() + back_mask.sum())
+    zero_groups_adjusted = forward_groups.shape[0]
+    rows_changed = int(forward_mask.sum())
 
     df = df.drop(columns=["Period_dt"])
     df = df.sort_values(["PlantProductMesh", "element_code", "PeriodKey"])
