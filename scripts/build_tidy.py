@@ -250,11 +250,8 @@ def parse_band(
 
     products: List[Tuple[int, str, Optional[str]]] = []
     for col_idx, label in raw_products:
-        key = normalize_product_key(label)
-        mapped = product_map.get(key)
-        normalized_product = mapped.get("product") if mapped else label
-        mat_group = mapped.get("mat_group") if mapped else None
-        products.append((col_idx, normalized_product, mat_group))
+        # Use product name directly from the plant file (no product map normalization)
+        products.append((col_idx, label, None))
 
     base_cost_cfg = layout_cfg.get("cost_elements", {})
     band_cost_cfg = band_cfg.get("cost_elements", {})
