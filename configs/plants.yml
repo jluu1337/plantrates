@@ -199,12 +199,16 @@ rulesets:
         - product_row: 3
           product_start_column: "B"
           product_stride: 3
+          cost_elements:
+            label_column: "A"
+            start_row: 6
         - product_row: 34
           product_start_column: "B"
           product_stride: 3
+          cost_elements:
+            label_column: "A"
+            start_row: 37
       cost_elements:
-        label_column: "A"
-        start_row: 6
         stop_before_text_ilike: "Total Fixed Costs"
         exclude_rows_ilike:
           - "Total Fixed Costs"
