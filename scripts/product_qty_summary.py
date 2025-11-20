@@ -20,7 +20,7 @@ def main() -> None:
     args = parser.parse_args()
 
     df = pd.read_csv(args.tidy)
-    df["qty"] = pd.to_numeric(df["qty"], errors="coerce").fillna(0.0)
+    df["qty"] = pd.to_numeric(df["qty"], errors="coerce").fillna(0.0) * 1000.0
 
     # Collapse element duplication: one quantity per plant/product/period
     summary = (
