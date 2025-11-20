@@ -103,10 +103,13 @@ def build_membrain_join(mem_qty: pd.DataFrame, master_map: pd.DataFrame) -> pd.D
     joined["PlantProductMesh"] = joined["PlantProductMesh"].fillna(joined["MembrainProductMesh"])
     result = joined[["PlantProductMesh", "MembrainProductMesh", "PeriodKey", "QTY"]].copy()
     result["PlantProductMesh_norm"] = normalize_key(result["PlantProductMesh"])
-    # Deduplicate by product/period, keeping the highest quantity row
-    result = result.sort_values(["PlantProductMesh_norm", "PeriodKey", "QTY"], ascending=[True, True, False])
-    result = result.drop_duplicates(subset=["PlantProductMesh_norm", "PeriodKey"], keep="first")
-    return result
+    # Group forecast rows by product/period and sum quantities
+    grouped = (
+        result.groupby(["PlantProductMesh_norm", "PlantProductMesh", "PeriodKey"], dropna=False)
+        .agg(QTY=("QTY", "sum"), MembrainProductMesh=("MembrainProductMesh", "first"))
+        .reset_index()
+    )
+    return grouped
 
 
 def load_and_group_rates(path: Path) -> pd.DataFrame:
