@@ -574,7 +574,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             .reset_index()
         )
         tidy_df["rate"] = tidy_df["rate"].round(4)
-        tidy_df["cost"] = tidy_df["rate"] * (tidy_df["qty"] * 1000.0)
+        tidy_df["qty"] = tidy_df["qty"] * 1000.0
+        tidy_df["cost"] = tidy_df["rate"] * tidy_df["qty"]
         tidy_df["period_text"] = tidy_df["period"].dt.strftime("%Y/%m")
 
     desired_columns = config.get("output", {}).get(
