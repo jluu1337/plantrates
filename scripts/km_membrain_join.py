@@ -134,6 +134,36 @@ def load_and_group_rates(path: Path) -> pd.DataFrame:
     return grouped
 
 
+def apply_custom_accucast_override(merged: pd.DataFrame, grouped_rates: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
+    """
+    For ACCUCAST HT 50, set NI 2026-01 rates to the MCI 2025-12 rates (per element).
+    """
+    df = merged.copy()
+    target_norm = normalize_key(pd.Series(["ACCUCAST HT 50"])).iloc[0]
+
+    mci_prior = grouped_rates[
+        (grouped_rates["Plant"] == "MCI")
+        & (grouped_rates["PlantProductMesh_norm"] == target_norm)
+        & (grouped_rates["PeriodKey"] == "2025-12")
+    ].set_index("element_code")["Rate"]
+    if mci_prior.empty:
+        return df, 0
+
+    mask = (
+        (df["Plant"] == "NI")
+        & (df["PlantProductMesh_norm"] == target_norm)
+        & (df["PeriodKey"] == "2026-01")
+    )
+    if not mask.any():
+        return df, 0
+
+    before = df.loc[mask, "Rate"].copy()
+    df.loc[mask, "Rate"] = df.loc[mask, "element_code"].map(mci_prior).fillna(df.loc[mask, "Rate"])
+    changed = (df.loc[mask, "Rate"] != before).sum()
+    df.loc[mask, "rate_fill_flag"] = "custom_mci_dec_2025_to_jan_2026"
+    return df, int(changed)
+
+
 def apply_carry_forward(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, int]:
     df = df.copy()
     df["Period_dt"] = pd.to_datetime(df["PeriodKey"], format="%Y-%m")
@@ -219,8 +249,9 @@ def main() -> None:
     merged["Forecasted_Qty"] = pd.to_numeric(merged["Forecasted_Qty"], errors="coerce")
 
     merged, zero_groups, rows_changed = apply_carry_forward(merged)
+    merged, custom_changed = apply_custom_accucast_override(merged, grouped)
     metrics.zero_groups_adjusted = zero_groups
-    metrics.rows_rate_changed = rows_changed
+    metrics.rows_rate_changed = rows_changed + custom_changed
     metrics.merged_rows = len(merged)
 
     merged["Cost"] = merged["Rate"] * merged["Forecasted_Qty"]
