@@ -93,34 +93,28 @@ def load_membrain_qty(path: Path) -> pd.DataFrame:
 
 def load_master_map(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, dtype="string")
-    required = ["MembrainProductMesh", "ProductMesh"]
-    plant_present = "Plant" in df.columns
-    usecols = required + (["Plant"] if plant_present else [])
-    df = df[usecols].copy()
+    required = ["Period", "Plant", "MembrainProductMesh", "ProductMesh"]
+    missing = [col for col in required if col not in df.columns]
+    if missing:
+        raise KeyError(f"Missing expected columns {missing} in {path}")
+    df = df[required].copy()
+    _, period_key = parse_period_to_key(df["Period"])
+    df["PeriodKey"] = period_key
     df["MembrainProductMesh_norm"] = normalize_key(df["MembrainProductMesh"])
+    df["Plant_norm"] = normalize_key(df["Plant"])
     df["ProductMesh_norm"] = normalize_key(df["ProductMesh"])
-    if plant_present:
-        df["Plant_norm"] = normalize_key(df["Plant"])
     return df
 
 
 def build_membrain_join(mem_qty: pd.DataFrame, master_map: pd.DataFrame) -> pd.DataFrame:
-    # Join on product + plant when available in the master map; otherwise product only
-    if "Plant_norm" in master_map.columns:
-        joined = mem_qty.merge(
-            master_map[["MembrainProductMesh_norm", "Plant_norm", "ProductMesh"]],
-            left_on=["MembrainProductMesh_norm", "Plant_norm"],
-            right_on=["MembrainProductMesh_norm", "Plant_norm"],
-            how="left",
-            suffixes=("", "_map"),
-        )
-    else:
-        joined = mem_qty.merge(
-            master_map[["MembrainProductMesh_norm", "ProductMesh"]],
-            on="MembrainProductMesh_norm",
-            how="left",
-            suffixes=("", "_map"),
-        )
+    # Join on Period + Plant + MembrainProductMesh
+    joined = mem_qty.merge(
+        master_map[["MembrainProductMesh_norm", "Plant_norm", "PeriodKey", "ProductMesh"]],
+        left_on=["MembrainProductMesh_norm", "Plant_norm", "PeriodKey"],
+        right_on=["MembrainProductMesh_norm", "Plant_norm", "PeriodKey"],
+        how="left",
+        suffixes=("", "_map"),
+    )
     joined = joined.rename(columns={"ProductMesh": "PlantProductMesh"})
     joined["PlantProductMesh"] = joined["PlantProductMesh"].fillna(joined["MembrainProductMesh"])
     result = joined[["Plant", "Plant_norm", "PlantProductMesh", "MembrainProductMesh", "PeriodKey", "QTY"]].copy()

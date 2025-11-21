@@ -62,25 +62,21 @@ def main() -> None:
     qty_clean = qty_df["QTY"].astype("string").str.replace(",", "", regex=False).str.strip()
     qty_df["QTY"] = pd.to_numeric(qty_clean, errors="coerce").fillna(0.0)
 
-    required = ["MembrainProductMesh", "ProductMesh"]
-    map_cols = required + (["Plant"] if "Plant" in map_df.columns else [])
-    map_df = map_df[map_cols].copy()
+    required = ["Period", "Plant", "MembrainProductMesh", "ProductMesh"]
+    missing = [col for col in required if col not in map_df.columns]
+    if missing:
+        raise KeyError(f"Missing expected columns {missing} in {args.master_map}")
+    map_df = map_df[required].copy()
+    map_df["PeriodKey"] = parse_period(map_df["Period"])
     map_df["MembrainProductMesh_norm"] = normalize_key(map_df["MembrainProductMesh"])
-    map_df["Plant_norm"] = normalize_key(map_df["Plant"]) if "Plant" in map_df.columns else None
+    map_df["Plant_norm"] = normalize_key(map_df["Plant"])
 
-    if "Plant_norm" in map_df.columns:
-        joined = qty_df.merge(
-            map_df[["MembrainProductMesh_norm", "Plant_norm", "ProductMesh"]],
-            left_on=["MembrainProductMesh_norm", "Plant_norm"],
-            right_on=["MembrainProductMesh_norm", "Plant_norm"],
-            how="left",
-        )
-    else:
-        joined = qty_df.merge(
-            map_df[["MembrainProductMesh_norm", "ProductMesh"]],
-            on="MembrainProductMesh_norm",
-            how="left",
-        )
+    joined = qty_df.merge(
+        map_df[["MembrainProductMesh_norm", "Plant_norm", "PeriodKey", "ProductMesh"]],
+        left_on=["MembrainProductMesh_norm", "Plant_norm", "PeriodKey"],
+        right_on=["MembrainProductMesh_norm", "Plant_norm", "PeriodKey"],
+        how="left",
+    )
 
     joined["PlantProductMesh"] = joined["ProductMesh"].fillna(joined["MembrainProductMesh"])
 
