@@ -55,57 +55,80 @@ def load_membrain_qty(path: Path) -> pd.DataFrame:
     lower_cols = {col.lower(): col for col in df.columns}
 
     def find_col(substr: str) -> str:
+        import re
+        target = substr.lower().replace(" ", "")
         for key, orig in lower_cols.items():
-            if substr in key:
+            key_clean = key.lower().replace(" ", "")
+            key_alnum = re.sub(r"[^a-z0-9]", "", key_clean)
+            if target in key_clean or target in key_alnum:
+                return orig
+            if target == "qty" and ("quantity" in key_clean or "quantity" in key_alnum):
                 return orig
         raise KeyError(f"Expected column containing '{substr}' in {path}")
 
     period_col = find_col("period")
     qty_col = find_col("qty")
     product_col = find_col("productmesh")
+    plant_col = find_col("plant")
 
     df = df.rename(
         columns={
             period_col: "Period",
             qty_col: "QTY",
             product_col: "MembrainProductMesh",
+            plant_col: "Plant",
         }
     )
 
     df["MembrainProductMesh"] = df["MembrainProductMesh"].astype("string").fillna("")
+    df["Plant"] = df["Plant"].astype("string").fillna("")
     qty_clean = df["QTY"].astype("string").str.replace(",", "", regex=False).str.strip()
     df["QTY"] = pd.to_numeric(qty_clean, errors="coerce").fillna(0.0)
     _, period_key = parse_period_to_key(df["Period"])
     df["PeriodKey"] = period_key
     df["MembrainProductMesh_norm"] = normalize_key(df["MembrainProductMesh"])
+    df["Plant_norm"] = normalize_key(df["Plant"])
     return df
 
 
 def load_master_map(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(
-        path,
-        dtype={"MembrainProductMesh": "string", "ProductMesh": "string"},
-        usecols=["MembrainProductMesh", "ProductMesh"],
-    )
+    df = pd.read_csv(path, dtype="string")
+    required = ["MembrainProductMesh", "ProductMesh"]
+    plant_present = "Plant" in df.columns
+    usecols = required + (["Plant"] if plant_present else [])
+    df = df[usecols].copy()
     df["MembrainProductMesh_norm"] = normalize_key(df["MembrainProductMesh"])
     df["ProductMesh_norm"] = normalize_key(df["ProductMesh"])
+    if plant_present:
+        df["Plant_norm"] = normalize_key(df["Plant"])
     return df
 
 
 def build_membrain_join(mem_qty: pd.DataFrame, master_map: pd.DataFrame) -> pd.DataFrame:
-    joined = mem_qty.merge(
-        master_map[["MembrainProductMesh_norm", "ProductMesh"]],
-        on="MembrainProductMesh_norm",
-        how="left",
-        suffixes=("", "_map"),
-    )
+    # Join on product + plant when available in the master map; otherwise product only
+    if "Plant_norm" in master_map.columns:
+        joined = mem_qty.merge(
+            master_map[["MembrainProductMesh_norm", "Plant_norm", "ProductMesh"]],
+            left_on=["MembrainProductMesh_norm", "Plant_norm"],
+            right_on=["MembrainProductMesh_norm", "Plant_norm"],
+            how="left",
+            suffixes=("", "_map"),
+        )
+    else:
+        joined = mem_qty.merge(
+            master_map[["MembrainProductMesh_norm", "ProductMesh"]],
+            on="MembrainProductMesh_norm",
+            how="left",
+            suffixes=("", "_map"),
+        )
     joined = joined.rename(columns={"ProductMesh": "PlantProductMesh"})
     joined["PlantProductMesh"] = joined["PlantProductMesh"].fillna(joined["MembrainProductMesh"])
-    result = joined[["PlantProductMesh", "MembrainProductMesh", "PeriodKey", "QTY"]].copy()
+    result = joined[["Plant", "Plant_norm", "PlantProductMesh", "MembrainProductMesh", "PeriodKey", "QTY"]].copy()
     result["PlantProductMesh_norm"] = normalize_key(result["PlantProductMesh"])
-    # Group forecast rows by product/period and sum quantities
     grouped = (
-        result.groupby(["PlantProductMesh_norm", "PlantProductMesh", "PeriodKey"], dropna=False)
+        result.groupby(
+            ["Plant_norm", "Plant", "PlantProductMesh_norm", "PlantProductMesh", "PeriodKey"], dropna=False
+        )
         .agg(QTY=("QTY", "sum"), MembrainProductMesh=("MembrainProductMesh", "first"))
         .reset_index()
     )
@@ -136,21 +159,6 @@ def load_and_group_rates(path: Path) -> pd.DataFrame:
         columns={"product": "PlantProductMesh", "plant": "Plant", "rate": "Rate", "qty": "Qty"}
     )
     grouped["PlantProductMesh_norm"] = normalize_key(grouped["PlantProductMesh"])
-    # Choose the plant with highest Qty per product/period, then keep only that plant's rates
-    totals = (
-        grouped.groupby(["PlantProductMesh_norm", "PeriodKey", "Plant"], dropna=False)["Qty"]
-        .sum(min_count=1)
-        .reset_index(name="TotalQty")
-    )
-    best = (
-        totals.sort_values(["PlantProductMesh_norm", "PeriodKey", "TotalQty"], ascending=[True, True, False])
-        .drop_duplicates(subset=["PlantProductMesh_norm", "PeriodKey"], keep="first")
-    )
-    grouped = grouped.merge(
-        best[["PlantProductMesh_norm", "PeriodKey", "Plant"]],
-        on=["PlantProductMesh_norm", "PeriodKey", "Plant"],
-        how="inner",
-    )
     if grouped[["PlantProductMesh", "element_code", "PeriodKey"]].isna().any().any():
         raise ValueError("Nulls detected in key columns after grouping rates.")
     return grouped
@@ -232,9 +240,9 @@ def main() -> None:
     grouped[["Plant", "PlantProductMesh", "element_code", "PeriodKey", "Rate", "Qty"]].to_csv(args.out_grouped, index=False)
 
     merged = grouped.merge(
-        membrain_joined[["PlantProductMesh_norm", "PeriodKey", "QTY", "MembrainProductMesh"]],
-        left_on=["PlantProductMesh_norm", "PeriodKey"],
-        right_on=["PlantProductMesh_norm", "PeriodKey"],
+        membrain_joined[["PlantProductMesh_norm", "PeriodKey", "Plant", "QTY", "MembrainProductMesh"]],
+        left_on=["PlantProductMesh_norm", "PeriodKey", "Plant"],
+        right_on=["PlantProductMesh_norm", "PeriodKey", "Plant"],
         how="left",
     )
     merged = merged.rename(columns={"QTY": "Forecasted_Qty"})
